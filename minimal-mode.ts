@@ -119,6 +119,30 @@ class LimitedLinesText implements Component {
 // global tool-output expansion (Ctrl+O).
 const toolExpanded = new Map<string, boolean>();
 
+// Some terminals (Kitty keyboard protocol flag-1 mode) encode Ctrl+letter as
+// a CSI-u sequence using the control character code without a Ctrl modifier
+// bit, e.g. Ctrl+Alt+E arrives as \x1b[5;3:1u (5 = Ctrl+E, mod = Alt). Pi
+// only recognizes the ASCII-code + full-modifier form (\x1b[101;7u), so we
+// rewrite the three shortcuts into the form Pi understands. All other input
+// passes through unchanged.
+const CTRL_CODE_TO_KEY: Record<number, string> = {
+    5: "e", // Ctrl+E
+    23: "w", // Ctrl+W
+    2: "b", // Ctrl+B
+};
+const ALT_MODIFIER = 2;
+
+function convertCtrlAltSequence(data: string): string | undefined {
+    const match = data.match(/^\x1b\[(\d+);(\d+)(?::(\d+))?u$/);
+    if (!match) return undefined;
+    const code = Number(match[1]);
+    const modifier = Number(match[2]) - 1; // CSI-u modifiers are 1-indexed
+    const key = CTRL_CODE_TO_KEY[code];
+    if (!key || (modifier & ALT_MODIFIER) === 0) return undefined;
+    const eventSuffix = match[3] ? `:${match[3]}` : "";
+    return `\x1b[${key.charCodeAt(0)};7${eventSuffix}u`; // 7 = Ctrl|Alt (1-indexed)
+}
+
 function toggleToolExpanded(ctx: ExtensionContext, name: string): void {
     toolExpanded.set(name, !(toolExpanded.get(name) ?? false));
     const globalExpanded = ctx.ui.getToolsExpanded();
@@ -384,6 +408,15 @@ export default function (pi: ExtensionAPI) {
     pi.registerShortcut("ctrl+alt+b", {
         description: "Toggle bash expansion",
         handler: (ctx) => toggleToolExpanded(ctx, "bash"),
+    });
+
+    // Some terminals encode Ctrl+Alt+letter as a control-character CSI-u
+    // sequence. Rewrite those three sequences before they reach the editor.
+    pi.on("session_start", (_event, ctx) => {
+        ctx.ui.onTerminalInput?.((data) => {
+            const converted = convertCtrlAltSequence(data);
+            return converted ? { data: converted } : undefined;
+        });
     });
 }
 
