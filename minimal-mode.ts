@@ -4,13 +4,15 @@
  * Overrides the TUI rendering of bash, edit and write while delegating
  * execution to the official implementations:
  * - Collapsed: show a small summary with an ellipsis for long content.
- * - Expanded (Ctrl+O): delegate rendering to the official implementations.
+ * - Expanded: Ctrl+Alt+E (edit), Ctrl+Alt+W (write), Ctrl+Alt+B (bash)
+ *   toggle each tool between collapsed and fully expanded rendering.
+ * - The global Ctrl+O tool expansion does not affect these three tools.
  *
  * Usage:
  *   pi -e ./minimal-mode.ts
  */
 
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
     createBashTool,
     createBashToolDefinition,
@@ -87,11 +89,44 @@ class LimitedLinesText implements Component {
         private readonly ellipsis: string,
     ) {}
 
+    private cachedWidth?: number;
+    private cachedLines?: string[];
+
     render(width: number): string[] {
-        return truncateRows(wrapTextWithAnsi(this.text, Math.max(1, width)), this.maxLines, this.ellipsis, width);
+        // The TUI calls render() on every frame. Cache the wrapped result so
+        // a frame only re-wraps when the width actually changes.
+        if (this.cachedLines !== undefined && this.cachedWidth === width) {
+            return this.cachedLines;
+        }
+        const lines = truncateRows(
+            wrapTextWithAnsi(this.text, Math.max(1, width)),
+            this.maxLines,
+            this.ellipsis,
+            width,
+        );
+        this.cachedWidth = width;
+        this.cachedLines = lines;
+        return lines;
     }
 
-    invalidate(): void {}
+    invalidate(): void {
+        this.cachedWidth = undefined;
+        this.cachedLines = undefined;
+    }
+}
+
+// Per-tool expansion state, toggled by Ctrl+Alt+E/W/B. Independent of the
+// global tool-output expansion (Ctrl+O).
+const toolExpanded = new Map<string, boolean>();
+
+function toggleToolExpanded(ctx: ExtensionContext, name: string): void {
+    toolExpanded.set(name, !(toolExpanded.get(name) ?? false));
+    const globalExpanded = ctx.ui.getToolsExpanded();
+    // Force every tool row to re-render. The global value is restored
+    // immediately, so only the rows' renderers refresh, not the global state.
+    ctx.ui.setToolsExpanded(!globalExpanded);
+    ctx.ui.setToolsExpanded(globalExpanded);
+    ctx.ui.notify(`${name}: ${toolExpanded.get(name) ? "expanded" : "collapsed"}`, "info");
 }
 
 // Cache the official tool implementation by working directory, as pi may run
@@ -119,7 +154,7 @@ function getBashDef(cwd: string) {
 
 /**
  * Re-register a built-in tool with collapsed rendering and official
- * rendering when the global tool-output view is expanded.
+ * rendering when that tool is expanded via its own shortcut.
  */
 function registerCollapsibleTool(
     pi: ExtensionAPI,
@@ -147,7 +182,7 @@ function registerCollapsibleTool(
 
         renderCall(args, theme, context) {
             const def = getDef(context.cwd);
-            if (context.expanded && def.renderCall) {
+            if (toolExpanded.get(def.name) && def.renderCall) {
                 return def.renderCall(
                     args as never,
                     theme as never,
@@ -159,7 +194,7 @@ function registerCollapsibleTool(
 
         renderResult(result, options, theme, context) {
             const def = getDef(context.cwd);
-            if (options.expanded && def.renderResult) {
+            if (toolExpanded.get(def.name) && def.renderResult) {
                 return def.renderResult(
                     result as never,
                     options as never,
@@ -209,7 +244,7 @@ export default function (pi: ExtensionAPI) {
         },
 
         renderCall(args, theme, context) {
-            if (context.expanded) {
+            if (toolExpanded.get("bash")) {
                 const def = getBashDef(context.cwd);
                 if (def.renderCall) {
                     return def.renderCall(
@@ -233,7 +268,7 @@ export default function (pi: ExtensionAPI) {
         },
 
         renderResult(result, options, theme, context) {
-            if (options.expanded) {
+            if (toolExpanded.get("bash")) {
                 const def = getBashDef(context.cwd);
                 if (def.renderResult) {
                     return def.renderResult(
@@ -245,7 +280,7 @@ export default function (pi: ExtensionAPI) {
                 }
             }
 
-            const output = errorText(result).trim();
+            const output = errorText(result).trim().replace(/\r/g, "");
             if (context.isError) {
                 return new LimitedLinesText(
                     theme.fg("error", firstLine(output) || "failed"),
@@ -253,8 +288,19 @@ export default function (pi: ExtensionAPI) {
                     theme.fg("muted", "..."),
                 );
             }
+            // Preview only the first lines. Wrapping the full output on every
+            // frame is what made the TUI lag with large outputs.
+            const allLines = output.split("\n");
+            const previewLines = allLines
+                .slice(0, MAX_COLLAPSED_CONTENT_LINES - 1)
+                .map((line) => theme.fg("toolOutput", line));
+            if (allLines.length > MAX_COLLAPSED_CONTENT_LINES) {
+                previewLines.push(
+                    theme.fg("muted", `... (${allLines.length - (MAX_COLLAPSED_CONTENT_LINES - 1)} more lines)`),
+                );
+            }
             return new LimitedLinesText(
-                theme.fg("toolOutput", output || "(no output)"),
+                previewLines.join("\n") || theme.fg("muted", "(no output)"),
                 MAX_COLLAPSED_CONTENT_LINES,
                 theme.fg("muted", "..."),
             );
@@ -306,10 +352,15 @@ export default function (pi: ExtensionAPI) {
             let text = theme.fg("toolTitle", theme.bold("write ")) + theme.fg("accent", path);
             text += theme.fg("dim", ` (${lines.length} lines)`);
             if (content) {
-                text += `\n${lines
-                    .slice(0, MAX_COLLAPSED_CONTENT_LINES)
-                    .map((line) => theme.fg("toolOutput", line))
-                    .join("\n")}`;
+                const preview = lines
+                    .slice(0, MAX_COLLAPSED_CONTENT_LINES - 1)
+                    .map((line) => theme.fg("toolOutput", line));
+                if (lines.length > MAX_COLLAPSED_CONTENT_LINES) {
+                    preview.push(
+                        theme.fg("muted", `... (${lines.length - (MAX_COLLAPSED_CONTENT_LINES - 1)} more lines)`),
+                    );
+                }
+                text += `\n${preview.join("\n")}`;
             }
             return new LimitedLinesText(text, MAX_COLLAPSED_CONTENT_LINES, theme.fg("muted", "..."));
         },
@@ -320,5 +371,19 @@ export default function (pi: ExtensionAPI) {
             return new Text(theme.fg("success", "done"), 0, 0);
         },
     );
+
+    // --- Per-tool expansion shortcuts, independent of the global Ctrl+O ---
+    pi.registerShortcut("ctrl+alt+e", {
+        description: "Toggle edit expansion",
+        handler: (ctx) => toggleToolExpanded(ctx, "edit"),
+    });
+    pi.registerShortcut("ctrl+alt+w", {
+        description: "Toggle write expansion",
+        handler: (ctx) => toggleToolExpanded(ctx, "write"),
+    });
+    pi.registerShortcut("ctrl+alt+b", {
+        description: "Toggle bash expansion",
+        handler: (ctx) => toggleToolExpanded(ctx, "bash"),
+    });
 }
 
