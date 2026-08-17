@@ -1,16 +1,10 @@
 /**
  * Compact Tool Rendering Extension
  *
- * Overrides the TUI rendering of bash, edit and write while keeping the
- * official implementations (delegated execution, never truncated):
- * - Collapsed (default): show at most three terminal lines, keeping the
- *   beginning, with an ellipsis marking omitted content.
- *   - bash: the command
- *   - edit: path, block count, old/new first lines; result shows diff stats
- *   - write: path, line count, first content lines
- * - Expanded (Ctrl+O): full content; built-in renderers are invoked with the
- *   original context, so edit's live diff preview and write's syntax
- *   highlighting keep working.
+ * Overrides the TUI rendering of bash, edit and write while delegating
+ * execution to the official implementations:
+ * - Collapsed: show a small summary with an ellipsis for long content.
+ * - Expanded (Ctrl+O): delegate rendering to the official implementations.
  *
  * Usage:
  *   pi -e ./minimal-mode.ts
@@ -19,9 +13,9 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
     createBashTool,
+    createBashToolDefinition,
     createEditToolDefinition,
     createWriteToolDefinition,
-    renderDiff,
 } from "@earendil-works/pi-coding-agent";
 import type { EditToolDetails } from "@earendil-works/pi-coding-agent";
 import {
@@ -82,19 +76,6 @@ function diffStats(diff: string): { additions: number; removals: number } {
     return { additions, removals };
 }
 
-/** Colorize a few leading diff lines for the collapsed view. */
-function diffHead(diff: string, theme: Parameters<NonNullable<ToolDefinition["renderCall"]>>[1], maxLines: number): string {
-    const lines: string[] = [];
-    for (const line of diff.split("\n")) {
-        if (lines.length >= maxLines) break;
-        if (line.startsWith("+") && !line.startsWith("+++")) lines.push(theme.fg("success", line));
-        else if (line.startsWith("-") && !line.startsWith("---")) lines.push(theme.fg("error", line));
-        else if (line.startsWith("@")) lines.push(theme.fg("muted", line));
-        else lines.push(theme.fg("dim", line));
-    }
-    return lines.join("\n");
-}
-
 /**
  * Render text with a width-aware maximum number of lines.
  * The beginning is kept and an ellipsis marks omitted content.
@@ -116,6 +97,7 @@ class LimitedLinesText implements Component {
 // Cache the official tool implementation by working directory, as pi may run
 // the same extension against more than one session cwd.
 const bashToolCache = new Map<string, ReturnType<typeof createBashTool>>();
+const bashDefCache = new Map<string, ReturnType<typeof createBashToolDefinition>>();
 
 function getBashTool(cwd: string) {
     let tool = bashToolCache.get(cwd);
@@ -126,25 +108,24 @@ function getBashTool(cwd: string) {
     return tool;
 }
 
+function getBashDef(cwd: string) {
+    let def = bashDefCache.get(cwd);
+    if (!def) {
+        def = createBashToolDefinition(cwd);
+        bashDefCache.set(cwd, def);
+    }
+    return def;
+}
+
 /**
- * Re-register a built-in tool with collapsed-by-default rendering.
- *
- * - Collapsed: a custom compact summary is drawn; the built-in renderer is
- *   not invoked, so its internal state (e.g. edit's live diff preview) is
- *   left untouched.
- * - Expanded (Ctrl+O): the built-in renderer is invoked with the original
- *   context, so its state machine picks up where it left off (live preview,
- *   syntax highlighting, etc.).
- *
- * The official definition is resolved per session cwd via getDef, matching
- * how the bash override below resolves its tool per cwd.
+ * Re-register a built-in tool with collapsed rendering and official
+ * rendering when the global tool-output view is expanded.
  */
 function registerCollapsibleTool(
     pi: ExtensionAPI,
     getDef: (cwd: string) => ToolDefinition<any, any, any>,
     collapsedCall: (args: any, theme: any) => Component,
     collapsedResult: (result: any, options: any, theme: any, context: any) => Component,
-    expandedResult: (result: any, options: any, theme: any, context: any) => Component,
 ) {
     const def = getDef(process.cwd());
     pi.registerTool({
@@ -156,22 +137,35 @@ function registerCollapsibleTool(
         parameters: def.parameters,
         prepareArguments: def.prepareArguments,
         constrainedSampling: def.constrainedSampling,
-        renderShell: def.renderShell,
+        // The custom renderer does not draw its own frame. Keep the normal
+        // tool container so collapsed output has padding and a background.
+        renderShell: "default",
 
         async execute(toolCallId, params, signal, onUpdate, ctx) {
             return getDef(ctx.cwd).execute(toolCallId, params, signal, onUpdate, ctx);
         },
 
         renderCall(args, theme, context) {
-            if (context.expanded) {
-                return getDef(context.cwd).renderCall!(args as never, theme as never, context as never);
+            const def = getDef(context.cwd);
+            if (context.expanded && def.renderCall) {
+                return def.renderCall(
+                    args as never,
+                    theme as never,
+                    { ...context, lastComponent: undefined } as never,
+                );
             }
             return collapsedCall(args, theme);
         },
 
         renderResult(result, options, theme, context) {
-            if (options.expanded) {
-                return expandedResult(result, options, theme, context);
+            const def = getDef(context.cwd);
+            if (options.expanded && def.renderResult) {
+                return def.renderResult(
+                    result as never,
+                    options as never,
+                    theme as never,
+                    { ...context, lastComponent: undefined } as never,
+                );
             }
             return collapsedResult(result, options, theme, context);
         },
@@ -215,14 +209,21 @@ export default function (pi: ExtensionAPI) {
         },
 
         renderCall(args, theme, context) {
+            if (context.expanded) {
+                const def = getBashDef(context.cwd);
+                if (def.renderCall) {
+                    return def.renderCall(
+                        args as never,
+                        theme as never,
+                        { ...context, lastComponent: undefined } as never,
+                    );
+                }
+            }
+
             const command = args.command || "...";
             const timeout = args.timeout as number | undefined;
             const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
             const renderedCommand = theme.fg("toolTitle", theme.bold(`$ ${command}`)) + timeoutSuffix;
-
-            if (context.expanded) {
-                return new Text(renderedCommand, 0, 0);
-            }
 
             return new LimitedLinesText(
                 renderedCommand,
@@ -230,9 +231,37 @@ export default function (pi: ExtensionAPI) {
                 theme.fg("muted", "..."),
             );
         },
+
+        renderResult(result, options, theme, context) {
+            if (options.expanded) {
+                const def = getBashDef(context.cwd);
+                if (def.renderResult) {
+                    return def.renderResult(
+                        result as never,
+                        options as never,
+                        theme as never,
+                        { ...context, lastComponent: undefined } as never,
+                    );
+                }
+            }
+
+            const output = errorText(result).trim();
+            if (context.isError) {
+                return new LimitedLinesText(
+                    theme.fg("error", firstLine(output) || "failed"),
+                    MAX_COLLAPSED_CONTENT_LINES,
+                    theme.fg("muted", "..."),
+                );
+            }
+            return new LimitedLinesText(
+                theme.fg("toolOutput", output || "(no output)"),
+                MAX_COLLAPSED_CONTENT_LINES,
+                theme.fg("muted", "..."),
+            );
+        },
     });
 
-    // --- Edit tool: collapsed diff summary, expanded shows the full preview ---
+    // --- Edit tool: collapsed diff summary ---
     registerCollapsibleTool(
         pi,
         getEditDef,
@@ -242,45 +271,31 @@ export default function (pi: ExtensionAPI) {
             let text = theme.fg("toolTitle", theme.bold("edit ")) + theme.fg("accent", path);
             if (edits.length > 0) {
                 text += theme.fg("dim", ` (${edits.length} block${edits.length > 1 ? "s" : ""})`);
-                for (const edit of edits) {
-                    const oldFirst = firstLine(edit.oldText);
-                    const newFirst = firstLine(edit.newText);
-                    if (oldFirst) text += `\n${theme.fg("error", `- ${oldFirst}`)}`;
-                    if (newFirst) text += `\n${theme.fg("success", `+ ${newFirst}`)}`;
-                }
             }
-            return new LimitedLinesText(text, MAX_COLLAPSED_CONTENT_LINES, theme.fg("muted", "..."));
+            return new LimitedLinesText(text, 1, theme.fg("muted", "..."));
         },
         (result, _options, theme, context) => {
-            const path = String(context.args?.path ?? "");
             if (context.isError) {
-                return new Text(theme.fg("error", `edit ${path} failed: ${firstLine(errorText(result))}`), 0, 0);
+                return new LimitedLinesText(
+                    theme.fg("error", `failed: ${firstLine(errorText(result))}`),
+                    1,
+                    theme.fg("muted", "..."),
+                );
             }
             const diff = (result.details as EditToolDetails | undefined)?.diff;
             if (!diff) {
-                return new Text(theme.fg("success", `edit ${path} applied`), 0, 0);
+                return new Text(theme.fg("success", "applied"), 0, 0);
             }
             const { additions, removals } = diffStats(diff);
-            const text =
-                theme.fg("success", `edit ${path}`) +
-                theme.fg("dim", ` +${additions} -${removals}`) +
-                `\n${diffHead(diff, theme, MAX_COLLAPSED_CONTENT_LINES)}`;
-            return new LimitedLinesText(text, MAX_COLLAPSED_CONTENT_LINES, theme.fg("muted", "..."));
-        },
-        (result, _options, theme, context) => {
-            const path = String(context.args?.path ?? "");
-            if (context.isError) {
-                return new Text(theme.fg("error", errorText(result)), 0, 0);
-            }
-            const diff = (result.details as EditToolDetails | undefined)?.diff;
-            if (!diff) {
-                return new Text(theme.fg("success", `edit ${path} applied`), 0, 0);
-            }
-            return new Text(renderDiff(diff, { filePath: path }), 0, 0);
+            return new Text(
+                theme.fg("success", "applied") + theme.fg("dim", ` +${additions} -${removals}`),
+                0,
+                0,
+            );
         },
     );
 
-    // --- Write tool: collapsed shows path + first lines, expanded shows everything ---
+    // --- Write tool: collapsed shows path + first lines ---
     registerCollapsibleTool(
         pi,
         getWriteDef,
@@ -299,18 +314,10 @@ export default function (pi: ExtensionAPI) {
             return new LimitedLinesText(text, MAX_COLLAPSED_CONTENT_LINES, theme.fg("muted", "..."));
         },
         (result, _options, theme, context) => {
-            const path = String(context.args?.path ?? "");
             if (context.isError) {
-                return new Text(theme.fg("error", `write ${path} failed: ${firstLine(errorText(result))}`), 0, 0);
+                return new Text(theme.fg("error", `failed: ${firstLine(errorText(result))}`), 0, 0);
             }
-            return new Text(theme.fg("success", `write ${path} done`), 0, 0);
-        },
-        (result, _options, theme, context) => {
-            const path = String(context.args?.path ?? "");
-            if (context.isError) {
-                return new Text(theme.fg("error", errorText(result)), 0, 0);
-            }
-            return new Text(theme.fg("success", `write ${path} done`), 0, 0);
+            return new Text(theme.fg("success", "done"), 0, 0);
         },
     );
 }
