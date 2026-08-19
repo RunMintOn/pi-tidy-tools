@@ -117,7 +117,11 @@ class LimitedLinesText implements Component {
 
 // Per-tool expansion state, toggled by Ctrl+Alt+E/W/B. Independent of the
 // global tool-output expansion (Ctrl+O).
-const toolExpanded = new Map<string, boolean>();
+const toolExpanded = new Map<string, boolean>([
+    ["bash", false],
+    ["edit", true],
+    ["write", true],
+]);
 
 // Some terminals (Kitty keyboard protocol flag-1 mode) encode Ctrl+letter as
 // a CSI-u sequence using the control character code without a Ctrl modifier
