@@ -30,8 +30,10 @@ import {
     wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 
-const MAX_COLLAPSED_COMMAND_LINES = 3;
+const MAX_COLLAPSED_COMMAND_LINES = 1;
 const MAX_COLLAPSED_CONTENT_LINES = 3;
+// bash 折叠输出：1 行预览 + 1 行计数提示（共 2 行）。
+const MAX_COLLAPSED_BASH_OUTPUT_LINES = 2;
 
 /**
  * Truncate rendered rows to at most maxLines, keeping the beginning.
@@ -340,7 +342,9 @@ export default function (pi: ExtensionAPI) {
                     return def.renderCall(
                         args as never,
                         theme as never,
-                        { ...context, lastComponent: undefined } as never,
+                        // One-key full expansion for bash: skip the official
+                        // preview so Ctrl+Alt+B shows the complete output.
+                        { ...context, expanded: true, lastComponent: undefined } as never,
                     );
                 }
             }
@@ -363,7 +367,9 @@ export default function (pi: ExtensionAPI) {
                 if (def.renderResult) {
                     return def.renderResult(
                         result as never,
-                        options as never,
+                        // One-key full expansion for bash: skip the official
+                        // preview so Ctrl+Alt+B shows the complete output.
+                        { ...options, expanded: true } as never,
                         theme as never,
                         { ...context, lastComponent: undefined } as never,
                     );
@@ -378,20 +384,18 @@ export default function (pi: ExtensionAPI) {
                     theme.fg("muted", "..."),
                 );
             }
-            // Preview only the first lines. Wrapping the full output on every
+            // Preview only the first line. Wrapping the full output on every
             // frame is what made the TUI lag with large outputs.
             const allLines = output.split("\n");
-            const previewLines = allLines
-                .slice(0, MAX_COLLAPSED_CONTENT_LINES - 1)
-                .map((line) => theme.fg("toolOutput", line));
-            if (allLines.length > MAX_COLLAPSED_CONTENT_LINES) {
+            const previewLines = allLines.slice(0, 1).map((line) => theme.fg("toolOutput", line));
+            if (allLines.length > 1) {
                 previewLines.push(
-                    theme.fg("muted", `... (${allLines.length - (MAX_COLLAPSED_CONTENT_LINES - 1)} more lines)`),
+                    theme.fg("muted", `... (${allLines.length - 1} more lines)`),
                 );
             }
             return new LimitedLinesText(
                 previewLines.join("\n") || theme.fg("muted", "(no output)"),
-                MAX_COLLAPSED_CONTENT_LINES,
+                MAX_COLLAPSED_BASH_OUTPUT_LINES,
                 theme.fg("muted", "..."),
             );
         },
