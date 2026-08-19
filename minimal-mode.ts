@@ -21,6 +21,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { EditToolDetails } from "@earendil-works/pi-coding-agent";
 import {
+    Box,
+    Container,
     Text,
     type Component,
     sliceByColumn,
@@ -115,6 +117,47 @@ class LimitedLinesText implements Component {
     }
 }
 
+class CollapsedToolShell extends Box {
+    private callComponent?: Component;
+    private resultComponent?: Component;
+
+    constructor(theme: any, background: string) {
+        super(1, 1, (text) => theme.bg(background, text));
+    }
+
+    setBackground(theme: any, background: string): void {
+        this.setBgFn((text) => theme.bg(background, text));
+    }
+
+    setCall(component: Component): void {
+        this.callComponent = component;
+        this.rebuild();
+    }
+
+    setResult(component: Component): void {
+        this.resultComponent = component;
+        this.rebuild();
+    }
+
+    private rebuild(): void {
+        this.clear();
+        if (this.callComponent) this.addChild(this.callComponent);
+        if (this.resultComponent) this.addChild(this.resultComponent);
+    }
+}
+
+function getCollapsedToolShell(state: any, theme: any, background: string): CollapsedToolShell {
+    const shell = (state.collapsedToolShell as CollapsedToolShell | undefined) ?? new CollapsedToolShell(theme, background);
+    state.collapsedToolShell = shell;
+    shell.setBackground(theme, background);
+    return shell;
+}
+
+function getCollapsedBackground(isPartial: boolean, isError: boolean): string {
+    if (isPartial) return "toolPendingBg";
+    return isError ? "toolErrorBg" : "toolSuccessBg";
+}
+
 // Per-tool expansion state, toggled by Ctrl+Alt+E/W/B. Independent of the
 // global tool-output expansion (Ctrl+O).
 const toolExpanded = new Map<string, boolean>([
@@ -182,7 +225,8 @@ function getBashDef(cwd: string) {
 
 /**
  * Re-register a built-in tool with collapsed rendering and official
- * rendering when that tool is expanded via its own shortcut.
+ * rendering when that tool is expanded via its own shortcut. The built-in
+ * render shell is preserved so expanded views keep their native layout.
  */
 function registerCollapsibleTool(
     pi: ExtensionAPI,
@@ -191,6 +235,7 @@ function registerCollapsibleTool(
     collapsedResult: (result: any, options: any, theme: any, context: any) => Component,
 ) {
     const def = getDef(process.cwd());
+    const usesSelfShell = def.renderShell === "self";
     pi.registerTool({
         name: def.name,
         label: def.label,
@@ -200,9 +245,8 @@ function registerCollapsibleTool(
         parameters: def.parameters,
         prepareArguments: def.prepareArguments,
         constrainedSampling: def.constrainedSampling,
-        // The custom renderer does not draw its own frame. Keep the normal
-        // tool container so collapsed output has padding and a background.
-        renderShell: "default",
+        // Omit renderShell so Pi inherits each built-in tool's native shell.
+        // In particular, edit uses "self" for its original expanded layout.
 
         async execute(toolCallId, params, signal, onUpdate, ctx) {
             return getDef(ctx.cwd).execute(toolCallId, params, signal, onUpdate, ctx);
@@ -217,7 +261,16 @@ function registerCollapsibleTool(
                     { ...context, lastComponent: undefined } as never,
                 );
             }
-            return collapsedCall(args, theme);
+            const component = collapsedCall(args, theme);
+            if (!usesSelfShell) return component;
+
+            const shell = getCollapsedToolShell(
+                context.state,
+                theme,
+                getCollapsedBackground(context.isPartial, context.isError),
+            );
+            shell.setCall(component);
+            return shell;
         },
 
         renderResult(result, options, theme, context) {
@@ -230,7 +283,16 @@ function registerCollapsibleTool(
                     { ...context, lastComponent: undefined } as never,
                 );
             }
-            return collapsedResult(result, options, theme, context);
+            const component = collapsedResult(result, options, theme, context);
+            if (!usesSelfShell) return component;
+
+            const shell = getCollapsedToolShell(
+                context.state,
+                theme,
+                getCollapsedBackground(options.isPartial, context.isError),
+            );
+            shell.setResult(component);
+            return new Container();
         },
     });
 }
