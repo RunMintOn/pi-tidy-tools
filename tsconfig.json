@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "skipLibCheck": true,
+    "typeRoots": [
+      "/home/lee/.nvm/versions/node/v22.19.0/lib/node_modules/@earendil-works/pi-coding-agent/node_modules/@types"
+    ]
+  },
+  "include": ["tidy-tools.ts"]
+}

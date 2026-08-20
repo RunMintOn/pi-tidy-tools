@@ -1,11 +1,11 @@
 ---
 name: tool-render-customization
-description: 修改本项目工具渲染插件（minimal-mode.ts）时使用。覆盖渲染机制：同名工具代理、renderShell、两层展开、lastComponent、折叠摘要、快捷键。用户要求自定义或调整 bash、edit、write 的折叠、展开、默认状态、外框样式时加载。
+description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆盖渲染机制：同名工具代理、renderShell、两层展开、lastComponent、折叠摘要、快捷键。用户要求自定义或调整 bash、edit、write 的折叠、展开、默认状态、外框样式时加载。
 ---
 
 # 工具渲染插件自定义指南
 
-本项目的 `minimal-mode.ts` 覆盖 Pi TUI 中 `bash`、`edit`、`write` 的渲染。本 skill 提供修改它所需的知识：先认清机制，再动手改。
+本项目的 `tidy-tools.ts` 覆盖 Pi TUI 中 `bash`、`edit`、`write` 的渲染。本 skill 提供修改它所需的知识：先认清机制，再动手改。
 
 ## 何时使用
 

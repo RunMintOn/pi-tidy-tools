@@ -1,0 +1,28 @@
+{
+  "name": "@runminton/pi-tidy-tools",
+  "version": "0.1.0",
+  "description": "Tidy tool rendering for the pi TUI: collapse bash/edit/write into compact summaries and expand on demand with Ctrl+Alt+B/W/E.",
+  "license": "MIT",
+  "type": "module",
+  "files": [
+    "tidy-tools.ts",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./tidy-tools.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.84.0",
+    "@earendil-works/pi-tui": ">=0.84.0"
+  },
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "tui",
+    "tools",
+    "rendering"
+  ]
+}

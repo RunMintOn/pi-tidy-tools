@@ -24,10 +24,16 @@ A compact tool-rendering extension for [Pi](https://github.com/earendil-works/pi
 Load the extension:
 
 ```bash
-pi -e ./minimal-mode.ts
+pi -e ./tidy-tools.ts
 ```
 
-Or copy `minimal-mode.ts` into `~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project) and restart Pi.
+Or install as a pi package:
+
+```bash
+pi install pi-tidy-tools
+```
+
+Or copy `tidy-tools.ts` into `~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project) and restart Pi.
 
 Then toggle each tool with `Ctrl+Alt+E` / `Ctrl+Alt+W` / `Ctrl+Alt+B`. A notification shows the current state; press again to collapse.
 
@@ -47,13 +53,14 @@ If a shortcut still does nothing on your machine, check:
 
 1. **Terminal or input method swallows the key.** Some terminals and IMEs (e.g. Chinese input methods, Windows Alt-menu accelerators) intercept `Ctrl+Alt+...` before Pi ever sees it. Try a different combination or a different terminal.
 2. **tmux / screen.** If Pi runs inside tmux with the default configuration, tmux's own key handling may interfere.
-3. **Custom keys.** The bindings are registered in `minimal-mode.ts` via `pi.registerShortcut(...)` — edit the key strings there to rebind. Pi's built-in global expansion (`Ctrl+O`, `app.tools.expand`) is configured separately via `~/.pi/agent/keybindings.json`.
+3. **Custom keys.** The bindings are registered in `tidy-tools.ts` via `pi.registerShortcut(...)` — edit the key strings there to rebind. Pi's built-in global expansion (`Ctrl+O`, `app.tools.expand`) is configured separately via `~/.pi/agent/keybindings.json`.
 
 ## Development
 
 ```bash
-# Type-check (needs @earendil-works/pi-tui resolvable; it ships inside Pi's global install)
-tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck minimal-mode.ts
+# Type-check with the repo tsconfig (resolves Pi types via the symlinked
+# global install in node_modules/)
+tsc --noEmit
 
 # Smoke test: renders collapsed/expanded states with a fake extension host, and
 # benchmarks per-frame cost. See the scripts in the repo's test notes.

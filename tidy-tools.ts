@@ -9,7 +9,7 @@
  * - The global Ctrl+O tool expansion does not affect these three tools.
  *
  * Usage:
- *   pi -e ./minimal-mode.ts
+ *   pi -e ./tidy-tools.ts
  */
 
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";

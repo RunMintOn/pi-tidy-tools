@@ -24,10 +24,16 @@
 加载扩展：
 
 ```bash
-pi -e ./minimal-mode.ts
+pi -e ./tidy-tools.ts
 ```
 
-或者把 `minimal-mode.ts` 复制到 `~/.pi/agent/extensions/`（全局）或 `.pi/extensions/`（项目级），然后重启 Pi。
+或者作为 pi 包安装：
+
+```bash
+pi install pi-tidy-tools
+```
+
+或者把 `tidy-tools.ts` 复制到 `~/.pi/agent/extensions/`（全局）或 `.pi/extensions/`（项目级），然后重启 Pi。
 
 之后用 `Ctrl+Alt+E` / `Ctrl+Alt+W` / `Ctrl+Alt+B` 切换对应工具的展开状态。按下时会弹通知提示当前状态；再按一次收起。
 
@@ -47,13 +53,13 @@ Pi 会在终端支持时协商 [Kitty 键盘协议](https://sw.kovidgoyal.net/ki
 
 1. **终端或输入法吞掉了按键。** 有些终端和输入法（例如中文输入法、Windows 的 Alt 菜单加速键）会在 Pi 收到按键之前把它拦截。换一个组合键或换一个终端试试。
 2. **tmux / screen。** 如果 Pi 运行在 tmux 默认配置里，tmux 自己的按键处理可能干扰。
-3. **自定义按键。** 绑定在 `minimal-mode.ts` 里通过 `pi.registerShortcut(...)` 注册——改那里的按键字符串即可重新绑定。Pi 内置的全局展开（`Ctrl+O`，即 `app.tools.expand`）则单独通过 `~/.pi/agent/keybindings.json` 配置。
+3. **自定义按键。** 绑定在 `tidy-tools.ts` 里通过 `pi.registerShortcut(...)` 注册——改那里的按键字符串即可重新绑定。Pi 内置的全局展开（`Ctrl+O`，即 `app.tools.expand`）则单独通过 `~/.pi/agent/keybindings.json` 配置。
 
 ## 开发
 
 ```bash
-# 类型检查（需要能解析 @earendil-works/pi-tui，它随 Pi 全局安装提供）
-tsc --noEmit --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck minimal-mode.ts
+# 类型检查（通过仓库 tsconfig 解析 Pi 类型，依赖 node_modules/ 中指向全局安装的软链）
+tsc --noEmit
 
 # 冒烟测试与性能基准：用假扩展宿主渲染折叠/展开状态并测量每帧开销（见仓库测试说明）
 ```
