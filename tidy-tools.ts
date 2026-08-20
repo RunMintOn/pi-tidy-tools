@@ -435,7 +435,7 @@ export default function (pi: ExtensionAPI) {
         },
     );
 
-    // --- Write tool: collapsed shows path + first lines ---
+    // --- Write tool: collapsed shows path + line count ---
     registerCollapsibleTool(
         pi,
         getWriteDef,
@@ -445,18 +445,7 @@ export default function (pi: ExtensionAPI) {
             const lines = content.split("\n");
             let text = theme.fg("toolTitle", theme.bold("write ")) + theme.fg("accent", path);
             text += theme.fg("dim", ` (${lines.length} lines)`);
-            if (content) {
-                const preview = lines
-                    .slice(0, MAX_COLLAPSED_CONTENT_LINES - 1)
-                    .map((line) => theme.fg("toolOutput", line));
-                if (lines.length > MAX_COLLAPSED_CONTENT_LINES) {
-                    preview.push(
-                        theme.fg("muted", `... (${lines.length - (MAX_COLLAPSED_CONTENT_LINES - 1)} more lines)`),
-                    );
-                }
-                text += `\n${preview.join("\n")}`;
-            }
-            return new LimitedLinesText(text, MAX_COLLAPSED_CONTENT_LINES, theme.fg("muted", "..."));
+            return new LimitedLinesText(text, 1, theme.fg("muted", "..."));
         },
         (result, _options, theme, context) => {
             if (context.isError) {

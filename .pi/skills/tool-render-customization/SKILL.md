@@ -95,4 +95,4 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 |---|---|---|
 | bash | 折叠（1 行命令 + 1 行输出 + 计数） | `Ctrl+Alt+B`：一键完整展开 / 收回 |
 | edit | 展开（官方默认渲染） | `Ctrl+Alt+E`：官方渲染 ↔ 折叠摘要（带 shared Box 外框） |
-| write | 展开（官方默认渲染） | `Ctrl+Alt+W`：官方渲染 ↔ 折叠摘要（`path` + 行数 + 前 2 行） |
+| write | 展开（官方默认渲染） | `Ctrl+Alt+W`：官方渲染 ↔ 折叠摘要（`path` + 行数，单行） |
