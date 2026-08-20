@@ -1,6 +1,6 @@
 {
   "name": "@runminton/pi-tidy-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tidy tool rendering for the pi TUI: collapse bash/edit/write into compact summaries and expand on demand with Ctrl+Alt+B/W/E.",
   "license": "MIT",
   "type": "module",

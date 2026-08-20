@@ -1,23 +1,32 @@
-# pi-clean-tool-render
+# pi-tidy-tools
 
-A compact tool-rendering extension for [Pi](https://github.com/earendil-works/pi-mono) (the pi-coding-agent TUI). It overrides the rendering of `bash`, `edit` and `write` so tool output stays out of your way: collapsed into a tiny summary by default, expanded on demand per tool.
+A tidy tool-rendering extension for [Pi](https://github.com/earendil-works/pi-mono) (the pi-coding-agent TUI). It overrides the rendering of `bash`, `edit` and `write`: compact summaries by default, full official rendering when you need it.
 
 [中文版](README.zh-CN.md)
 
-## Features
+## Default view
 
-- **Collapsed by default** — each tool shows a short summary (at most 3 lines) with an ellipsis for omitted content.
-- **Per-tool expansion** — expand exactly the tool you care about, with one shortcut each:
+Each tool starts in one of two states:
 
-  | Shortcut | Tool |
-  |---|---|
-  | `Ctrl+Alt+E` | `edit` |
-  | `Ctrl+Alt+W` | `write` |
-  | `Ctrl+Alt+B` | `bash` |
+| Tool | Default | What you see |
+|---|---|---|
+| `bash` | **Collapsed** | `$ command`, one output line, and `... (N more lines)` if there is more output |
+| `edit` | **Expanded** | Pi's official renderer: path, block count, live diff preview, native layout |
+| `write` | **Expanded** | Pi's official renderer: path, line count, syntax-highlighted content |
 
-- **Independent of the global `Ctrl+O`** — Pi's built-in "expand everything" toggle does not affect these three tools. Each tool has exactly two states: collapsed summary ↔ full official rendering.
-- **Official renderers on expansion** — expanded views delegate to Pi's built-in renderers, so the full diff preview and syntax highlighting still work.
-- **Fast** — rendering caches wrapped output and only processes the preview lines: roughly 13µs per frame for a 2000-line output, instead of ~3ms before.
+Collapsed summaries are single-line (bash shows one preview line plus a count row).
+
+## Shortcuts
+
+| Shortcut | Tool | Toggles between |
+|---|---|---|
+| `Ctrl+Alt+B` | `bash` | collapsed summary ↔ **one-key full output** |
+| `Ctrl+Alt+E` | `edit` | official rendering ↔ collapsed summary |
+| `Ctrl+Alt+W` | `write` | official rendering ↔ collapsed summary |
+
+A notification shows the current state on each toggle; press again to switch back.
+
+`bash` expands to the **complete output** in one keypress — it skips Pi's built-in 5-line tail preview. `edit` and `write` expand to Pi's **official default rendering**: they delegate to the official renderers, and whether the content itself is further expanded is still controlled by the global `Ctrl+O`, exactly as without this extension. Only `bash` ignores `Ctrl+O` in its expanded state.
 
 ## Usage
 
@@ -30,12 +39,10 @@ pi -e ./tidy-tools.ts
 Or install as a pi package:
 
 ```bash
-pi install pi-tidy-tools
+pi install @runminton/pi-tidy-tools
 ```
 
 Or copy `tidy-tools.ts` into `~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project) and restart Pi.
-
-Then toggle each tool with `Ctrl+Alt+E` / `Ctrl+Alt+W` / `Ctrl+Alt+B`. A notification shows the current state; press again to collapse.
 
 ## Keyboard protocol notes
 

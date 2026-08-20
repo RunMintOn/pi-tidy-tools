@@ -1,23 +1,32 @@
-# pi-clean-tool-render
+# pi-tidy-tools
 
-为 [Pi](https://github.com/earendil-works/pi-mono)（pi-coding-agent 的 TUI）打造的精简工具渲染扩展。它覆盖了 `bash`、`edit`、`write` 的渲染方式：默认折叠成一行小摘要，需要时按工具单独展开，让工具输出不打扰你。
+为 [Pi](https://github.com/earendil-works/pi-mono)（pi-coding-agent 的 TUI）打造的工具渲染精简扩展。它覆盖了 `bash`、`edit`、`write` 的渲染：默认呈现紧凑摘要，需要时切换为官方完整渲染。
 
 [English](README.md)
 
-## 特性
+## 默认视图
 
-- **默认折叠** —— 每个工具只显示简短摘要（最多 3 行），省略的内容用 `...` 标记。
-- **按工具单独展开** —— 只展开你关心的那一个工具，每个工具一个快捷键：
+每个工具启动时处于两种状态之一：
 
-  | 快捷键 | 工具 |
-  |---|---|
-  | `Ctrl+Alt+E` | `edit` |
-  | `Ctrl+Alt+W` | `write` |
-  | `Ctrl+Alt+B` | `bash` |
+| 工具 | 默认状态 | 显示内容 |
+|---|---|---|
+| `bash` | **折叠** | `$ command`、一行输出预览、有更多输出时加 `... (N more lines)` 计数行 |
+| `edit` | **展开** | Pi 官方渲染：路径、修改块数、实时 diff 预览、原生布局 |
+| `write` | **展开** | Pi 官方渲染：路径、行数、语法高亮内容 |
 
-- **与全局 `Ctrl+O` 互不影响** —— Pi 内置的"全部展开"开关不会影响这三个工具。每个工具只有两种状态：折叠摘要 ↔ 官方完整渲染。
-- **展开时使用官方渲染器** —— 完整展开的内容委托给 Pi 内置渲染器，完整的 diff 预览和语法高亮依然可用。
-- **性能好** —— 渲染结果有缓存，且只处理预览行的文本：2000 行输出每帧约 13 微秒，修复前是约 3 毫秒。
+折叠摘要为单行样式（bash 额外保留一行输出预览 + 一行计数）。
+
+## 快捷键
+
+| 快捷键 | 工具 | 切换内容 |
+|---|---|---|
+| `Ctrl+Alt+B` | `bash` | 折叠摘要 ↔ **一键完整输出** |
+| `Ctrl+Alt+E` | `edit` | 官方渲染 ↔ 折叠摘要 |
+| `Ctrl+Alt+W` | `write` | 官方渲染 ↔ 折叠摘要 |
+
+每次切换会弹出通知提示当前状态；再按一次切回。
+
+`bash` 展开时**一次按键直接显示完整输出**——跳过 Pi 内置的 5 行尾部预览。`edit` 和 `write` 展开时使用 Pi **官方默认渲染**：委托给官方渲染器，内容本身是否进一步展开仍由全局 `Ctrl+O` 控制，与不装本扩展时完全一致。只有 `bash` 在展开状态下不受 `Ctrl+O` 影响。
 
 ## 使用方法
 
@@ -30,12 +39,10 @@ pi -e ./tidy-tools.ts
 或者作为 pi 包安装：
 
 ```bash
-pi install pi-tidy-tools
+pi install @runminton/pi-tidy-tools
 ```
 
 或者把 `tidy-tools.ts` 复制到 `~/.pi/agent/extensions/`（全局）或 `.pi/extensions/`（项目级），然后重启 Pi。
-
-之后用 `Ctrl+Alt+E` / `Ctrl+Alt+W` / `Ctrl+Alt+B` 切换对应工具的展开状态。按下时会弹通知提示当前状态；再按一次收起。
 
 ## 键盘协议说明（重要）
 
