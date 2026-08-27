@@ -28,6 +28,16 @@ A notification shows the current state on each toggle; press again to switch bac
 
 `bash` expands to the **complete output** in one keypress — it skips Pi's built-in 5-line tail preview. `edit` and `write` expand to Pi's **official default rendering**: they delegate to the official renderers, and whether the content itself is further expanded is still controlled by the global `Ctrl+O`, exactly as without this extension. Only `bash` ignores `Ctrl+O` in its expanded state.
 
+## Commands
+
+Use these commands when terminal shortcuts conflict or are not delivered:
+
+| Command | Tool |
+|---|---|
+| `/tidy-bash` | Toggle `bash` output |
+| `/tidy-edit` | Toggle `edit` output |
+| `/tidy-write` | Toggle `write` output |
+
 ## Usage
 
 Load the extension:
@@ -61,6 +71,7 @@ If a shortcut still does nothing on your machine, check:
 1. **Terminal or input method swallows the key.** Some terminals and IMEs (e.g. Chinese input methods, Windows Alt-menu accelerators) intercept `Ctrl+Alt+...` before Pi ever sees it. Try a different combination or a different terminal.
 2. **tmux / screen.** If Pi runs inside tmux with the default configuration, tmux's own key handling may interfere.
 3. **Custom keys.** The bindings are registered in `tidy-tools.ts` via `pi.registerShortcut(...)` — edit the key strings there to rebind. Pi's built-in global expansion (`Ctrl+O`, `app.tools.expand`) is configured separately via `~/.pi/agent/keybindings.json`.
+4. **Inspect the input.** Run `/tidy-key-debug`, then press one target shortcut. Pi shows the received bytes and any rewrite. If no notification appears, the terminal or input method consumed the key before Pi received it.
 
 ## Development
 

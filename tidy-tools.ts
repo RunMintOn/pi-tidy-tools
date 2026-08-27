@@ -180,8 +180,17 @@ const CTRL_CODE_TO_KEY: Record<number, string> = {
     2: "b", // Ctrl+B
 };
 const ALT_MODIFIER = 2;
+let debugNextTerminalInput = false;
 
 function convertCtrlAltSequence(data: string): string | undefined {
+    // Legacy terminals send Ctrl+Alt+letter as ESC followed by the Ctrl
+    // character. Pi deliberately ignores this form after Kitty negotiation,
+    // so normalize it before Pi's key matcher sees it.
+    if (data.length === 2 && data[0] === "\x1b") {
+        const key = CTRL_CODE_TO_KEY[data.charCodeAt(1)];
+        if (key) return `\x1b[${key.charCodeAt(0)};7u`; // 7 = Ctrl|Alt (1-indexed)
+    }
+
     const match = data.match(/^\x1b\[(\d+);(\d+)(?::(\d+))?u$/);
     if (!match) return undefined;
     const code = Number(match[1]);
@@ -455,6 +464,26 @@ export default function (pi: ExtensionAPI) {
         },
     );
 
+    pi.registerCommand("tidy-bash", {
+        description: "Toggle bash output expansion",
+        handler: async (_args, ctx) => toggleToolExpanded(ctx, "bash"),
+    });
+    pi.registerCommand("tidy-edit", {
+        description: "Toggle edit output expansion",
+        handler: async (_args, ctx) => toggleToolExpanded(ctx, "edit"),
+    });
+    pi.registerCommand("tidy-write", {
+        description: "Toggle write output expansion",
+        handler: async (_args, ctx) => toggleToolExpanded(ctx, "write"),
+    });
+    pi.registerCommand("tidy-key-debug", {
+        description: "Show the next raw terminal key sequence",
+        handler: async (_args, ctx) => {
+            debugNextTerminalInput = true;
+            ctx.ui.notify("Press one key to inspect its terminal sequence.", "info");
+        },
+    });
+
     // --- Per-tool expansion shortcuts, independent of the global Ctrl+O ---
     pi.registerShortcut("ctrl+alt+e", {
         description: "Toggle edit expansion",
@@ -472,8 +501,16 @@ export default function (pi: ExtensionAPI) {
     // Some terminals encode Ctrl+Alt+letter as a control-character CSI-u
     // sequence. Rewrite those three sequences before they reach the editor.
     pi.on("session_start", (_event, ctx) => {
-        ctx.ui.onTerminalInput?.((data) => {
+        ctx.ui.onTerminalInput((data) => {
             const converted = convertCtrlAltSequence(data);
+            if (debugNextTerminalInput) {
+                debugNextTerminalInput = false;
+                const bytes = [...data].map((char) => char.charCodeAt(0)).join(", ");
+                ctx.ui.notify(
+                    `raw: ${JSON.stringify(data)} [${bytes}]${converted ? ` → ${JSON.stringify(converted)}` : ""}`,
+                    "info",
+                );
+            }
             return converted ? { data: converted } : undefined;
         });
     });
