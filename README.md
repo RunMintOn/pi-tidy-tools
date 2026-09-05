@@ -2,31 +2,44 @@
 
 A tidy tool-rendering extension for [Pi](https://github.com/earendil-works/pi-mono) (the pi-coding-agent TUI). It overrides the rendering of `bash`, `edit` and `write`: compact summaries by default, full official rendering when you need it.
 
+> Display layer only. Tool execution is fully delegated to Pi's official implementations — parameters, behavior and results are untouched; the extension only decides how many rows to draw and in which colors.
+
 [中文版](README.zh-CN.md)
 
 ## Default view
 
-Each tool starts in one of two states:
+All three tools start **Collapsed**:
 
-| Tool | Default | What you see |
+| Tool | Collapsed summary | Expanded |
 |---|---|---|
-| `bash` | **Collapsed** | `$ command`, one output line, and `... (N more lines)` if there is more output |
-| `edit` | **Expanded** | Pi's official renderer: path, block count, live diff preview, native layout |
-| `write` | **Expanded** | Pi's official renderer: path, line count, syntax-highlighted content |
+| `bash` | `$ command` plus one output line, with an inline `... (N more lines)` suffix when truncated | complete output |
+| `edit` | `edit path (N blocks)` + `applied +a -b` | Pi's official renderer: path, block count, live diff preview, native layout |
+| `write` | `write path (N lines)` + `done` | Pi's official renderer: path, line count, syntax-highlighted content |
 
-Collapsed summaries are single-line (bash shows one preview line plus a count row).
+Collapsed summaries are single-line per slot: one command line plus one output line (the count suffix is inline at the end of the output line).
+
+## Modes
+
+| Mode | Behavior |
+|---|---|
+| compact (default) | all three tools collapsed |
+| markdown (`/tidy-markdown` toggles) | `edit`/`write` on Markdown files (`.md`, `.mdx`, `.markdown`) expand to full content; everything else stays collapsed |
+
+Switching modes clears per-tool manual toggles and re-renders existing rows. The mode is not persisted across restarts.
 
 ## Shortcuts
 
-| Shortcut | Tool | Toggles between |
+On Mac press `Command+Option+letter` (verified; maps to the registered `Ctrl+Alt+letter`. Other platforms press `Ctrl+Alt+letter`):
+
+| Shortcut (Mac) | Tool | Toggles between |
 |---|---|---|
-| `Ctrl+Alt+B` | `bash` | collapsed summary ↔ **one-key full output** |
-| `Ctrl+Alt+E` | `edit` | official rendering ↔ collapsed summary |
-| `Ctrl+Alt+W` | `write` | official rendering ↔ collapsed summary |
+| `Command+Option+B` | `bash` | collapsed summary ↔ **one-key full output** |
+| `Command+Option+E` | `edit` | official rendering ↔ collapsed summary |
+| `Command+Option+W` | `write` | official rendering ↔ collapsed summary |
 
 A notification shows the current state on each toggle; press again to switch back.
 
-`bash` expands to the **complete output** in one keypress — it skips Pi's built-in 5-line tail preview. `edit` and `write` expand to Pi's **official default rendering**: they delegate to the official renderers, and whether the content itself is further expanded is still controlled by the global `Ctrl+O`, exactly as without this extension. Only `bash` ignores `Ctrl+O` in its expanded state.
+`bash` and `write` expand to the **complete output** in one keypress — they skip Pi's built-in previews (bash's 5-line tail preview, write's 10-line preview). `edit` expands to Pi's **official rendering** (it has no preview state). The global `Ctrl+O` tool expansion does not affect these three tools.
 
 ## Commands
 
@@ -37,6 +50,7 @@ Use these commands when terminal shortcuts conflict or are not delivered:
 | `/tidy-bash` | Toggle `bash` output |
 | `/tidy-edit` | Toggle `edit` output |
 | `/tidy-write` | Toggle `write` output |
+| `/tidy-markdown` | Toggle markdown mode (edit/write expand for Markdown files) |
 
 ## Usage
 
@@ -72,6 +86,21 @@ If a shortcut still does nothing on your machine, check:
 2. **tmux / screen.** If Pi runs inside tmux with the default configuration, tmux's own key handling may interfere.
 3. **Custom keys.** The bindings are registered in `tidy-tools.ts` via `pi.registerShortcut(...)` — edit the key strings there to rebind. Pi's built-in global expansion (`Ctrl+O`, `app.tools.expand`) is configured separately via `~/.pi/agent/keybindings.json`.
 4. **Inspect the input.** Run `/tidy-key-debug`, then press one target shortcut. Pi shows the received bytes and any rewrite. If no notification appears, the terminal or input method consumed the key before Pi received it.
+
+## Changelog
+
+### 0.2.0
+
+- All three tools collapsed by default (edit/write used to expand)
+- New `/tidy-markdown`: edit/write on Markdown files auto-expand to full content, the rest stays collapsed; switching modes clears manual toggles
+- Write expansion skips the official 10-line preview and shows full content; global `Ctrl+O` no longer affects any of the three tools
+- Bash collapsed output is 2 rows with the count suffix inline, including error output
+- Fixed tab-width overflow wrapping collapsed bash output on narrow terminals; fixed doubled edit padding from a nested render shell
+
+### 0.1.3
+
+- New `/tidy-bash`, `/tidy-edit`, `/tidy-write`, `/tidy-key-debug` commands
+- Normalized the legacy `ESC` + control-character shortcut form
 
 ## Development
 

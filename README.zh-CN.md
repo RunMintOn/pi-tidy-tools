@@ -2,31 +2,44 @@
 
 为 [Pi](https://github.com/earendil-works/pi-mono)（pi-coding-agent 的 TUI）打造的工具渲染精简扩展。它覆盖了 `bash`、`edit`、`write` 的渲染：默认呈现紧凑摘要，需要时切换为官方完整渲染。
 
+> 只动显示层，不动执行层。三个工具的执行完全委托 Pi 官方实现，参数、行为、结果一字不差；插件只决定屏幕上画几行、用什么颜色。
+
 [English](README.md)
 
 ## 默认视图
 
-每个工具启动时处于两种状态之一：
+三个工具默认**全部折叠**：
 
-| 工具 | 默认状态 | 显示内容 |
+| 工具 | 折叠摘要 | 展开 |
 |---|---|---|
-| `bash` | **折叠** | `$ command`、一行输出预览、有更多输出时加 `... (N more lines)` 计数行 |
-| `edit` | **展开** | Pi 官方渲染：路径、修改块数、实时 diff 预览、原生布局 |
-| `write` | **展开** | Pi 官方渲染：路径、行数、语法高亮内容 |
+| `bash` | `$ command` 加一行输出预览，计数后缀 `... (N more lines)` 内联在行尾 | 完整输出 |
+| `edit` | `edit 路径（N blocks）` + `applied +a -b` | Pi 官方渲染：路径、修改块数、实时 diff 预览、原生布局 |
+| `write` | `write 路径（N lines）` + `done` | Pi 官方渲染：路径、行数、语法高亮内容 |
 
-折叠摘要为单行样式（bash 额外保留一行输出预览 + 一行计数）。
+折叠摘要每槽单行：命令 1 行加输出 1 行（计数后缀内联在输出行尾）。
+
+## 模式
+
+| 模式 | 行为 |
+|---|---|
+| compact（默认） | 三工具全折叠 |
+| markdown（`/tidy-markdown` 切换） | Markdown 文件（`.md`、`.mdx`、`.markdown`）的 `edit`/`write` 展开全文，其余照样折叠 |
+
+切换模式会清空各工具的手动钉选并重渲染已有行。模式不持久化，重启后回到 compact。
 
 ## 快捷键
 
-| 快捷键 | 工具 | 切换内容 |
+Mac 上按 `Command+Option+字母`（实测有效，对应插件注册的 `Ctrl+Alt+字母`；其他平台按 `Ctrl+Alt+字母`）：
+
+| 快捷键（Mac） | 工具 | 切换内容 |
 |---|---|---|
-| `Ctrl+Alt+B` | `bash` | 折叠摘要 ↔ **一键完整输出** |
-| `Ctrl+Alt+E` | `edit` | 官方渲染 ↔ 折叠摘要 |
-| `Ctrl+Alt+W` | `write` | 官方渲染 ↔ 折叠摘要 |
+| `Command+Option+B` | `bash` | 折叠摘要 ↔ **一键完整输出** |
+| `Command+Option+E` | `edit` | 官方渲染 ↔ 折叠摘要 |
+| `Command+Option+W` | `write` | 官方渲染 ↔ 折叠摘要 |
 
 每次切换会弹出通知提示当前状态；再按一次切回。
 
-`bash` 展开时**一次按键直接显示完整输出**——跳过 Pi 内置的 5 行尾部预览。`edit` 和 `write` 展开时使用 Pi **官方默认渲染**：委托给官方渲染器，内容本身是否进一步展开仍由全局 `Ctrl+O` 控制，与不装本扩展时完全一致。只有 `bash` 在展开状态下不受 `Ctrl+O` 影响。
+`bash` 和 `write` 展开时**一次按键直接显示完整输出**——跳过 Pi 内置预览（bash 的 5 行尾部预览、write 的 10 行预览）。`edit` 展开时使用 Pi **官方渲染**（它没有预览态）。全局 `Ctrl+O` 对这三个工具均无效。
 
 ## 命令
 
@@ -37,6 +50,7 @@
 | `/tidy-bash` | 切换 `bash` 输出 |
 | `/tidy-edit` | 切换 `edit` 输出 |
 | `/tidy-write` | 切换 `write` 输出 |
+| `/tidy-markdown` | 切换 Markdown 模式（Markdown 文件的 edit/write 展开） |
 
 ## 使用方法
 
@@ -72,6 +86,21 @@ Pi 会在终端支持时协商 [Kitty 键盘协议](https://sw.kovidgoyal.net/ki
 2. **tmux / screen。** 如果 Pi 运行在 tmux 默认配置里，tmux 自己的按键处理可能干扰。
 3. **自定义按键。** 绑定在 `tidy-tools.ts` 里通过 `pi.registerShortcut(...)` 注册——改那里的按键字符串即可重新绑定。Pi 内置的全局展开（`Ctrl+O`，即 `app.tools.expand`）则单独通过 `~/.pi/agent/keybindings.json` 配置。
 4. **检查输入。** 执行 `/tidy-key-debug`，再按一次目标快捷键。Pi 会显示收到的字节和改写结果。若没有通知，终端或输入法在 Pi 收到按键前已拦截它。
+
+## 更新日志
+
+### 0.2.0 - 2026-09-05
+
+- 默认三工具全折叠（edit/write 原默认展开）
+- 新增 `/tidy-markdown`：Markdown 文件的 edit/write 自动展开全文，其余照样折叠；切模式清空手动钉选
+- write 展开跳过官方 10 行预览，直接全文；全局 `Ctrl+O` 对三工具失效
+- bash 折叠压成 2 行：计数后缀内联到输出行尾，失败输出（红色）同样单行
+- 修 tab 宽度导致的窄终端折行；修 edit 双层外框多出的 padding
+
+### 0.1.3
+
+- 新增 `/tidy-bash`、`/tidy-edit`、`/tidy-write`、`/tidy-key-debug` 命令
+- 修传统 `ESC` + 控制字符形式的快捷键归一化
 
 ## 开发
 

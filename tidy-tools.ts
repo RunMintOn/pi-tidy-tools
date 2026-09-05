@@ -7,6 +7,9 @@
  * - Expanded: Ctrl+Alt+E (edit), Ctrl+Alt+W (write), Ctrl+Alt+B (bash)
  *   toggle each tool between collapsed and fully expanded rendering.
  * - The global Ctrl+O tool expansion does not affect these three tools.
+ * - Modes: compact (default, all three collapsed) and markdown
+ *   (`/tidy-markdown` toggles; edit/write on Markdown files expand,
+ *   the rest stays collapsed). Not persisted across restarts.
  *
  * Usage:
  *   pi -e ./tidy-tools.ts
@@ -32,8 +35,8 @@ import {
 
 const MAX_COLLAPSED_COMMAND_LINES = 1;
 const MAX_COLLAPSED_CONTENT_LINES = 3;
-// bash 折叠输出：1 行预览 + 1 行计数提示（共 2 行）。
-const MAX_COLLAPSED_BASH_OUTPUT_LINES = 2;
+// bash 折叠输出：预览与计数后缀合并为 1 行（命令 1 行 + 输出 1 行）。
+const MAX_COLLAPSED_BASH_OUTPUT_LINES = 1;
 
 /**
  * Truncate rendered rows to at most maxLines, keeping the beginning.
@@ -63,6 +66,14 @@ function firstLine(text: string | undefined): string {
     if (!text) return "";
     const line = text.split("\n")[0] ?? "";
     return line.length > 80 ? `${line.slice(0, 77)}...` : line;
+}
+
+// 终端 tab 按 8 的倍数对齐，pi-tui 按 3 列计算。不展开 tab 会导致
+// 行宽估算小于终端实际渲染，窄终端下折成两行。与官方 replaceTabs
+// 保持一致：tab 展开为 3 个空格。
+
+function expandTabs(text: string): string {
+    return text.replace(/\t/g, "   ");
 }
 
 function errorText(result: { content: { type: string; text?: string }[] }): string {
@@ -119,6 +130,46 @@ class LimitedLinesText implements Component {
     }
 }
 
+class CollapsedBashOutput implements Component {
+    // 首行预览 + 计数后缀合并为 1 行，后缀常显。预览放不下时截断并加省略标记。
+    constructor(
+        private readonly preview: string,
+        private readonly suffix: string,
+        private readonly truncatedMarker: string,
+    ) {}
+
+    render(width: number): string[] {
+        if (!this.suffix) {
+            return truncateRows(
+                wrapTextWithAnsi(this.preview, Math.max(1, width)),
+                MAX_COLLAPSED_BASH_OUTPUT_LINES,
+                this.truncatedMarker,
+                width,
+            );
+        }
+        const suffixWidth = visibleWidth(this.suffix);
+        if (suffixWidth >= width) {
+            return [sliceByColumn(this.suffix, 0, Math.max(1, width), true)];
+        }
+        const previewBudget = width - suffixWidth - 1;
+        if (visibleWidth(this.preview) <= previewBudget) {
+            return [`${this.preview} ${this.suffix}`];
+        }
+        const markerWidth = visibleWidth(this.truncatedMarker);
+        const preview = sliceByColumn(
+            this.preview,
+            0,
+            Math.max(0, previewBudget - markerWidth),
+            true,
+        );
+        const row = `${preview}${this.truncatedMarker} ${this.suffix}`;
+        // 极窄宽度下省略标记本身都放不下时做最终钳制，保证恒为 1 行。
+        return [visibleWidth(row) > width ? sliceByColumn(row, 0, width, true) : row];
+    }
+
+    invalidate(): void {}
+}
+
 class CollapsedToolShell extends Box {
     private callComponent?: Component;
     private resultComponent?: Component;
@@ -160,13 +211,37 @@ function getCollapsedBackground(isPartial: boolean, isError: boolean): string {
     return isError ? "toolErrorBg" : "toolSuccessBg";
 }
 
-// Per-tool expansion state, toggled by Ctrl+Alt+E/W/B. Independent of the
-// global tool-output expansion (Ctrl+O).
-const toolExpanded = new Map<string, boolean>([
-    ["bash", false],
-    ["edit", true],
-    ["write", true],
-]);
+// 显示模式：compact 下三工具默认全折叠；markdown 模式下 edit/write 遇到
+// Markdown 文件默认展开全文，其余照样折叠。默认 compact，不持久化。
+let markdownMode = false;
+// 手动钉选：Ctrl+Alt+? 或 /tidy-<tool> 设置，优先于模式默认；切换模式时清空。
+const manualExpanded = new Map<string, boolean>();
+
+function isMarkdownPath(value: unknown): boolean {
+    if (typeof value !== "string") return false;
+    return /\.(md|mdx|markdown)$/i.test(value.trim());
+}
+
+function toolArgsMarkdown(args: any): boolean {
+    return isMarkdownPath(args?.path) || isMarkdownPath(args?.file_path);
+}
+
+// 不带文件上下文的工具级基准（用于翻转手动钉选）：compact 下全 false；
+// markdown 模式下 edit/write 为 true（具体到文件时再按后缀细化）。
+function modeBaseExpanded(name: string): boolean {
+    if (!markdownMode) return false;
+    return name === "edit" || name === "write";
+}
+
+function modeDefaultExpanded(name: string, args: any): boolean {
+    if (!markdownMode) return false;
+    if (name === "edit" || name === "write") return toolArgsMarkdown(args);
+    return false;
+}
+
+function isToolExpanded(name: string, args: any): boolean {
+    return manualExpanded.get(name) ?? modeDefaultExpanded(name, args);
+}
 
 // Some terminals (Kitty keyboard protocol flag-1 mode) encode Ctrl+letter as
 // a CSI-u sequence using the control character code without a Ctrl modifier
@@ -201,14 +276,18 @@ function convertCtrlAltSequence(data: string): string | undefined {
     return `\x1b[${key.charCodeAt(0)};7${eventSuffix}u`; // 7 = Ctrl|Alt (1-indexed)
 }
 
-function toggleToolExpanded(ctx: ExtensionContext, name: string): void {
-    toolExpanded.set(name, !(toolExpanded.get(name) ?? false));
+function refreshToolRows(ctx: ExtensionContext): void {
     const globalExpanded = ctx.ui.getToolsExpanded();
     // Force every tool row to re-render. The global value is restored
     // immediately, so only the rows' renderers refresh, not the global state.
     ctx.ui.setToolsExpanded(!globalExpanded);
     ctx.ui.setToolsExpanded(globalExpanded);
-    ctx.ui.notify(`${name}: ${toolExpanded.get(name) ? "expanded" : "collapsed"}`, "info");
+}
+
+function toggleToolExpanded(ctx: ExtensionContext, name: string): void {
+    manualExpanded.set(name, !(manualExpanded.get(name) ?? modeBaseExpanded(name)));
+    refreshToolRows(ctx);
+    ctx.ui.notify(`${name}: ${manualExpanded.get(name) ? "expanded" : "collapsed"}`, "info");
 }
 
 // Cache the official tool implementation by working directory, as pi may run
@@ -244,6 +323,9 @@ function registerCollapsibleTool(
     getDef: (cwd: string) => ToolDefinition<any, any, any>,
     collapsedCall: (args: any, theme: any) => Component,
     collapsedResult: (result: any, options: any, theme: any, context: any) => Component,
+    // 跳过官方预览态，展开即全文（bash 行为）。为 false 时保留官方默认视图，
+    // 其内部预览 / 全文仍由全局 Ctrl+O 决定。
+    forceFullExpansion = false,
 ) {
     const def = getDef(process.cwd());
     const usesSelfShell = def.renderShell === "self";
@@ -256,8 +338,11 @@ function registerCollapsibleTool(
         parameters: def.parameters,
         prepareArguments: def.prepareArguments,
         constrainedSampling: def.constrainedSampling,
-        // Omit renderShell so Pi inherits each built-in tool's native shell.
-        // In particular, edit uses "self" for its original expanded layout.
+        // Mirror the official renderShell. Omitting it falls back to
+        // "default", which double-wraps "self" tools like edit in an
+        // extra Box: one extra padding line on top and bottom when
+        // expanded, and a Box-in-Box when collapsed.
+        ...(usesSelfShell ? { renderShell: "self" as const } : {}),
 
         async execute(toolCallId, params, signal, onUpdate, ctx) {
             return getDef(ctx.cwd).execute(toolCallId, params, signal, onUpdate, ctx);
@@ -265,11 +350,17 @@ function registerCollapsibleTool(
 
         renderCall(args, theme, context) {
             const def = getDef(context.cwd);
-            if (toolExpanded.get(def.name) && def.renderCall) {
+            if (isToolExpanded(def.name, args) && def.renderCall) {
                 return def.renderCall(
                     args as never,
                     theme as never,
-                    { ...context, lastComponent: undefined } as never,
+                    // One-key full expansion: skip the official preview so
+                    // the per-tool shortcut always shows complete output.
+                    {
+                        ...context,
+                        ...(forceFullExpansion ? { expanded: true } : {}),
+                        lastComponent: undefined,
+                    } as never,
                 );
             }
             const component = collapsedCall(args, theme);
@@ -286,10 +377,10 @@ function registerCollapsibleTool(
 
         renderResult(result, options, theme, context) {
             const def = getDef(context.cwd);
-            if (toolExpanded.get(def.name) && def.renderResult) {
+            if (isToolExpanded(def.name, context.args) && def.renderResult) {
                 return def.renderResult(
                     result as never,
-                    options as never,
+                    { ...options, ...(forceFullExpansion ? { expanded: true } : {}) } as never,
                     theme as never,
                     { ...context, lastComponent: undefined } as never,
                 );
@@ -345,7 +436,7 @@ export default function (pi: ExtensionAPI) {
         },
 
         renderCall(args, theme, context) {
-            if (toolExpanded.get("bash")) {
+            if (isToolExpanded("bash", args)) {
                 const def = getBashDef(context.cwd);
                 if (def.renderCall) {
                     return def.renderCall(
@@ -358,7 +449,8 @@ export default function (pi: ExtensionAPI) {
                 }
             }
 
-            const command = args.command || "...";
+            const rawCommand = args.command || "...";
+            const command = typeof rawCommand === "string" ? expandTabs(rawCommand) : "...";
             const timeout = args.timeout as number | undefined;
             const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
             const renderedCommand = theme.fg("toolTitle", theme.bold(`$ ${command}`)) + timeoutSuffix;
@@ -371,7 +463,7 @@ export default function (pi: ExtensionAPI) {
         },
 
         renderResult(result, options, theme, context) {
-            if (toolExpanded.get("bash")) {
+            if (isToolExpanded("bash", context.args)) {
                 const def = getBashDef(context.cwd);
                 if (def.renderResult) {
                     return def.renderResult(
@@ -385,26 +477,40 @@ export default function (pi: ExtensionAPI) {
                 }
             }
 
-            const output = errorText(result).trim().replace(/\r/g, "");
+            const output = expandTabs(errorText(result).trim().replace(/\r/g, ""));
+            const allLines = output.split("\n");
+            const first = allLines[0] ?? "";
+            const moreSuffix =
+                allLines.length > 1
+                    ? theme.fg("muted", `... (${allLines.length - 1} more lines)`)
+                    : "";
+            // 失败输出同样压成 1 行：红色首行 + 内联计数，与成功态同形。
             if (context.isError) {
-                return new LimitedLinesText(
-                    theme.fg("error", firstLine(output) || "failed"),
-                    MAX_COLLAPSED_CONTENT_LINES,
+                if (!first) {
+                    return new CollapsedBashOutput(
+                        theme.fg("error", "failed"),
+                        "",
+                        theme.fg("muted", "..."),
+                    );
+                }
+                return new CollapsedBashOutput(
+                    theme.fg("error", first),
+                    moreSuffix,
                     theme.fg("muted", "..."),
                 );
             }
             // Preview only the first line. Wrapping the full output on every
             // frame is what made the TUI lag with large outputs.
-            const allLines = output.split("\n");
-            const previewLines = allLines.slice(0, 1).map((line) => theme.fg("toolOutput", line));
-            if (allLines.length > 1) {
-                previewLines.push(
-                    theme.fg("muted", `... (${allLines.length - 1} more lines)`),
+            if (!first) {
+                return new CollapsedBashOutput(
+                    theme.fg("muted", "(no output)"),
+                    "",
+                    theme.fg("muted", "..."),
                 );
             }
-            return new LimitedLinesText(
-                previewLines.join("\n") || theme.fg("muted", "(no output)"),
-                MAX_COLLAPSED_BASH_OUTPUT_LINES,
+            return new CollapsedBashOutput(
+                theme.fg("toolOutput", first),
+                moreSuffix,
                 theme.fg("muted", "..."),
             );
         },
@@ -462,6 +568,8 @@ export default function (pi: ExtensionAPI) {
             }
             return new Text(theme.fg("success", "done"), 0, 0);
         },
+        // 展开即全文，跳过官方 10 行预览：三工具统一两档，Ctrl+O 彻底失效。
+        true,
     );
 
     pi.registerCommand("tidy-bash", {
@@ -475,6 +583,15 @@ export default function (pi: ExtensionAPI) {
     pi.registerCommand("tidy-write", {
         description: "Toggle write output expansion",
         handler: async (_args, ctx) => toggleToolExpanded(ctx, "write"),
+    });
+    pi.registerCommand("tidy-markdown", {
+        description: "Toggle markdown mode (edit/write expand for Markdown files)",
+        handler: async (_args, ctx) => {
+            markdownMode = !markdownMode;
+            manualExpanded.clear();
+            refreshToolRows(ctx);
+            ctx.ui.notify(`markdown mode: ${markdownMode ? "on" : "off"}`, "info");
+        },
     });
     pi.registerCommand("tidy-key-debug", {
         description: "Show the next raw terminal key sequence",

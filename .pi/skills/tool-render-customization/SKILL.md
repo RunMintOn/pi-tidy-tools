@@ -25,17 +25,17 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 
 - `execute` → 委托官方实现（`getEditDef(ctx.cwd).execute(...)`）
 - `renderCall` / `renderResult` → 插件自己的显示逻辑
-- 不写 `renderShell` → Pi 继承内置工具的官方 shell
+- `renderShell` 必须显式镜像官方值（edit 设 `"self"`，bash/write 保持默认）。省略会回落到 `"default"`，不会继承原工具——之前省略导致展开的 edit 被双层 Box 包裹、上下各多一行 padding
 
 ### 2. 两层展开，不要混淆
 
-- **插件层**：`toolExpanded` Map，每工具一个 true/false，快捷键切换。
+- **插件层**：两块状态。`manualExpanded` Map：Ctrl+Alt+? 或 `/tidy-<tool>` 设的手动钉选，优先。`markdownMode` 布尔值：`/tidy-markdown` 切换，compact 下默认全折叠，markdown 模式下 edit/write 遇 Markdown 文件（`.md`、`.mdx`、`.markdown`，看 `path` / `file_path`）默认展开。切模式清空手动钉选。
 - **官方层**：官方 renderer 内部的 expanded 状态，由全局 `Ctrl+O` 控制。
 
 委托官方 renderer 时，传什么 `options` / `context` 决定用官方哪一层：
 
-- **不强制**（默认展开的 edit/write）：官方默认视图（如 bash 尾部 5 行预览）。
-- **强制** `{ ...options, expanded: true }`：跳过官方预览，一键完整展开（当前仅 bash 用这种，对应 `Ctrl+Alt+B`）。
+- **不强制**：官方默认视图（内容预览 / 全文仍由全局 `Ctrl+O` 决定）。当前 edit 用这种（官方 edit 只有一个全文态，传不传无差别）。
+- **强制** `{ ...options, expanded: true }`：跳过官方预览，一键完整展开。bash 和 write 用这种（`registerCollapsibleTool` 的 `forceFullExpansion` 参数），全局 `Ctrl+O` 对三工具彻底失效。
 
 修改展开行为时，先确认是哪个层、哪种语义，再决定是否加 `expanded: true`。
 
@@ -75,10 +75,10 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 
 | 想改什么 | 改哪里 |
 |---|---|
-| 默认折叠/展开状态 | `toolExpanded` 初始化（bash: false, edit: true, write: true） |
+| 默认折叠/展开状态 | compact 下全折叠；markdown 模式见 `modeDefaultExpanded`。手动钉选存在 `manualExpanded` |
 | 折叠行数 | `MAX_COLLAPSED_COMMAND_LINES`（bash 命令）、`MAX_COLLAPSED_BASH_OUTPUT_LINES`（bash 输出）。`MAX_COLLAPSED_CONTENT_LINES` 同时影响 write 折叠，改它前先确认 |
 | 折叠摘要内容 | `registerCollapsibleTool` 的 `collapsedCall` / `collapsedResult` 回调 |
-| 展开行为 | 委托处的 `options` / `context` 是否强制 `expanded: true` |
+| 展开行为 | `registerCollapsibleTool` 的 `forceFullExpansion` 参数（bash/write 为 true，edit 为 false） |
 | 快捷键 | `pi.registerShortcut("ctrl+alt+x", ...)`，并在 `CTRL_CODE_TO_KEY` / `convertCtrlAltSequence` 中注册新键（Kitty 协议终端需要输入桥） |
 | 新增工具覆盖 | 简单工具直接仿 bash 注册；想复用到官方切换逻辑用 `registerCollapsibleTool` |
 | 折叠外框样式 | `CollapsedToolShell`（self 工具）或依赖默认 shell（default 工具） |
@@ -93,6 +93,6 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 
 | 工具 | 默认 | Ctrl+Alt+快捷键 |
 |---|---|---|
-| bash | 折叠（1 行命令 + 1 行输出 + 计数） | `Ctrl+Alt+B`：一键完整展开 / 收回 |
-| edit | 展开（官方默认渲染） | `Ctrl+Alt+E`：官方渲染 ↔ 折叠摘要（带 shared Box 外框） |
-| write | 展开（官方默认渲染） | `Ctrl+Alt+W`：官方渲染 ↔ 折叠摘要（`path` + 行数，单行） |
+| bash | 折叠（1 行命令 + 1 行输出，计数后缀内联在行尾） | `Ctrl+Alt+B`：一键完整展开 / 收回 |
+| edit | 折叠（`path` + 块数，单行）；markdown 模式下 Markdown 文件默认展开全文 | `Ctrl+Alt+E`：官方全文 ↔ 折叠摘要（带 shared Box 外框） |
+| write | 折叠（`path` + 行数，单行）；markdown 模式下 Markdown 文件默认展开全文 | `Ctrl+Alt+W`：官方全文 ↔ 折叠摘要 |
