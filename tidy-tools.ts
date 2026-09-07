@@ -4,8 +4,9 @@
  * Overrides the TUI rendering of bash, edit and write while delegating
  * execution to the official implementations:
  * - Collapsed: show a small summary with an ellipsis for long content.
- * - Expanded: Ctrl+Alt+E (edit), Ctrl+Alt+W (write), Ctrl+Alt+B (bash)
- *   toggle each tool between collapsed and fully expanded rendering.
+ * - Expanded: click an individual tool block in fullscreen mode, or use
+ *   Ctrl+Alt+E (edit), Ctrl+Alt+W (write), Ctrl+Alt+B (bash) for all rows
+ *   of that tool, to toggle collapsed and fully expanded rendering.
  * - The global Ctrl+O tool expansion does not affect these three tools.
  * - Modes: compact (default, all three collapsed) and markdown
  *   (`/tidy-markdown` toggles; edit/write on Markdown files expand,
@@ -26,6 +27,7 @@ import type { EditToolDetails } from "@earendil-works/pi-coding-agent";
 import {
     Box,
     Container,
+    MouseRegion,
     Text,
     type Component,
     sliceByColumn,
@@ -216,6 +218,9 @@ function getCollapsedBackground(isPartial: boolean, isError: boolean): string {
 let markdownMode = false;
 // 手动钉选：Ctrl+Alt+? 或 /tidy-<tool> 设置，优先于模式默认；切换模式时清空。
 const manualExpanded = new Map<string, boolean>();
+// Per-tool revisions let a mode or tool-wide toggle replace row-local clicks
+// without disturbing clicked rows belonging to the other tools.
+const expansionRevisions = new Map<string, number>();
 
 function isMarkdownPath(value: unknown): boolean {
     if (typeof value !== "string") return false;
@@ -239,8 +244,34 @@ function modeDefaultExpanded(name: string, args: any): boolean {
     return false;
 }
 
-function isToolExpanded(name: string, args: any): boolean {
-    return manualExpanded.get(name) ?? modeDefaultExpanded(name, args);
+interface RowExpansionState {
+    revision: number;
+    override?: boolean;
+}
+
+function getRowExpansionState(name: string, context: any): RowExpansionState {
+    const revision = expansionRevisions.get(name) ?? 0;
+    let state = context.state.tidyExpansion as RowExpansionState | undefined;
+    if (!state || state.revision !== revision) {
+        state = { revision };
+        context.state.tidyExpansion = state;
+    }
+    return state;
+}
+
+function isToolExpanded(name: string, args: any, context: any): boolean {
+    const rowState = getRowExpansionState(name, context);
+    return rowState.override ?? manualExpanded.get(name) ?? modeDefaultExpanded(name, args);
+}
+
+function makeToolClickable(component: Component, name: string, args: any, context: any): Component {
+    return new MouseRegion(component, (event) => {
+        if (event.type !== "click" || event.button !== "left") return undefined;
+        const rowState = getRowExpansionState(name, context);
+        rowState.override = !isToolExpanded(name, args, context);
+        context.invalidate();
+        return { handled: true };
+    });
 }
 
 // Some terminals (Kitty keyboard protocol flag-1 mode) encode Ctrl+letter as
@@ -286,6 +317,7 @@ function refreshToolRows(ctx: ExtensionContext): void {
 
 function toggleToolExpanded(ctx: ExtensionContext, name: string): void {
     manualExpanded.set(name, !(manualExpanded.get(name) ?? modeBaseExpanded(name)));
+    expansionRevisions.set(name, (expansionRevisions.get(name) ?? 0) + 1);
     refreshToolRows(ctx);
     ctx.ui.notify(`${name}: ${manualExpanded.get(name) ? "expanded" : "collapsed"}`, "info");
 }
@@ -350,8 +382,8 @@ function registerCollapsibleTool(
 
         renderCall(args, theme, context) {
             const def = getDef(context.cwd);
-            if (isToolExpanded(def.name, args) && def.renderCall) {
-                return def.renderCall(
+            if (isToolExpanded(def.name, args, context) && def.renderCall) {
+                const component = def.renderCall(
                     args as never,
                     theme as never,
                     // One-key full expansion: skip the official preview so
@@ -362,9 +394,10 @@ function registerCollapsibleTool(
                         lastComponent: undefined,
                     } as never,
                 );
+                return makeToolClickable(component, def.name, args, context);
             }
             const component = collapsedCall(args, theme);
-            if (!usesSelfShell) return component;
+            if (!usesSelfShell) return makeToolClickable(component, def.name, args, context);
 
             const shell = getCollapsedToolShell(
                 context.state,
@@ -372,21 +405,22 @@ function registerCollapsibleTool(
                 getCollapsedBackground(context.isPartial, context.isError),
             );
             shell.setCall(component);
-            return shell;
+            return makeToolClickable(shell, def.name, args, context);
         },
 
         renderResult(result, options, theme, context) {
             const def = getDef(context.cwd);
-            if (isToolExpanded(def.name, context.args) && def.renderResult) {
-                return def.renderResult(
+            if (isToolExpanded(def.name, context.args, context) && def.renderResult) {
+                const component = def.renderResult(
                     result as never,
                     { ...options, ...(forceFullExpansion ? { expanded: true } : {}) } as never,
                     theme as never,
                     { ...context, lastComponent: undefined } as never,
                 );
+                return makeToolClickable(component, def.name, context.args, context);
             }
             const component = collapsedResult(result, options, theme, context);
-            if (!usesSelfShell) return component;
+            if (!usesSelfShell) return makeToolClickable(component, def.name, context.args, context);
 
             const shell = getCollapsedToolShell(
                 context.state,
@@ -436,16 +470,17 @@ export default function (pi: ExtensionAPI) {
         },
 
         renderCall(args, theme, context) {
-            if (isToolExpanded("bash", args)) {
+            if (isToolExpanded("bash", args, context)) {
                 const def = getBashDef(context.cwd);
                 if (def.renderCall) {
-                    return def.renderCall(
+                    const component = def.renderCall(
                         args as never,
                         theme as never,
                         // One-key full expansion for bash: skip the official
                         // preview so Ctrl+Alt+B shows the complete output.
                         { ...context, expanded: true, lastComponent: undefined } as never,
                     );
+                    return makeToolClickable(component, "bash", args, context);
                 }
             }
 
@@ -455,18 +490,18 @@ export default function (pi: ExtensionAPI) {
             const timeoutSuffix = timeout ? theme.fg("muted", ` (timeout ${timeout}s)`) : "";
             const renderedCommand = theme.fg("toolTitle", theme.bold(`$ ${command}`)) + timeoutSuffix;
 
-            return new LimitedLinesText(
+            return makeToolClickable(new LimitedLinesText(
                 renderedCommand,
                 MAX_COLLAPSED_COMMAND_LINES,
                 theme.fg("muted", "..."),
-            );
+            ), "bash", args, context);
         },
 
         renderResult(result, options, theme, context) {
-            if (isToolExpanded("bash", context.args)) {
+            if (isToolExpanded("bash", context.args, context)) {
                 const def = getBashDef(context.cwd);
                 if (def.renderResult) {
-                    return def.renderResult(
+                    const component = def.renderResult(
                         result as never,
                         // One-key full expansion for bash: skip the official
                         // preview so Ctrl+Alt+B shows the complete output.
@@ -474,9 +509,11 @@ export default function (pi: ExtensionAPI) {
                         theme as never,
                         { ...context, lastComponent: undefined } as never,
                     );
+                    return makeToolClickable(component, "bash", context.args, context);
                 }
             }
 
+            const clickable = (component: Component) => makeToolClickable(component, "bash", context.args, context);
             const output = expandTabs(errorText(result).trim().replace(/\r/g, ""));
             const allLines = output.split("\n");
             const first = allLines[0] ?? "";
@@ -487,32 +524,32 @@ export default function (pi: ExtensionAPI) {
             // 失败输出同样压成 1 行：红色首行 + 内联计数，与成功态同形。
             if (context.isError) {
                 if (!first) {
-                    return new CollapsedBashOutput(
+                    return clickable(new CollapsedBashOutput(
                         theme.fg("error", "failed"),
                         "",
                         theme.fg("muted", "..."),
-                    );
+                    ));
                 }
-                return new CollapsedBashOutput(
+                return clickable(new CollapsedBashOutput(
                     theme.fg("error", first),
                     moreSuffix,
                     theme.fg("muted", "..."),
-                );
+                ));
             }
             // Preview only the first line. Wrapping the full output on every
             // frame is what made the TUI lag with large outputs.
             if (!first) {
-                return new CollapsedBashOutput(
+                return clickable(new CollapsedBashOutput(
                     theme.fg("muted", "(no output)"),
                     "",
                     theme.fg("muted", "..."),
-                );
+                ));
             }
-            return new CollapsedBashOutput(
+            return clickable(new CollapsedBashOutput(
                 theme.fg("toolOutput", first),
                 moreSuffix,
                 theme.fg("muted", "..."),
-            );
+            ));
         },
     });
 
@@ -589,6 +626,9 @@ export default function (pi: ExtensionAPI) {
         handler: async (_args, ctx) => {
             markdownMode = !markdownMode;
             manualExpanded.clear();
+            for (const name of ["bash", "edit", "write"]) {
+                expansionRevisions.set(name, (expansionRevisions.get(name) ?? 0) + 1);
+            }
             refreshToolRows(ctx);
             ctx.ui.notify(`markdown mode: ${markdownMode ? "on" : "off"}`, "info");
         },

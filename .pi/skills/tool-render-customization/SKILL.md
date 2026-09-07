@@ -29,10 +29,10 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 
 ### 2. 两层展开，不要混淆
 
-- **插件层**：两块状态。`manualExpanded` Map：Ctrl+Alt+? 或 `/tidy-<tool>` 设的手动钉选，优先。`markdownMode` 布尔值：`/tidy-markdown` 切换，compact 下默认全折叠，markdown 模式下 edit/write 遇 Markdown 文件（`.md`、`.mdx`、`.markdown`，看 `path` / `file_path`）默认展开。切模式清空手动钉选。
-- **官方层**：官方 renderer 内部的 expanded 状态，由全局 `Ctrl+O` 控制。
+- **插件层**：最终只有紧凑和完整两种显示。`manualExpanded` Map 由 Ctrl+Alt+? 或 `/tidy-<tool>` 设置同类工具的统一状态。`markdownMode` 决定默认值。每一行还可在 fullscreen 下点击切换，行级 override 存在 `context.state.tidyExpansion`。`expansionRevisions` 让工具级快捷键或模式切换清除对应的行级 override。
+- **官方层**：Pi 自带的 `context.expanded` 状态由全局 `Ctrl+O` 和外层点击切换。本插件用内层 `MouseRegion` 消费点击并更新插件行级状态，因此点击不会再触发 Pi 外层切换；全局 `Ctrl+O` 仍不影响这三个工具。
 
-委托官方 renderer 时，传什么 `options` / `context` 决定用官方哪一层：
+委托官方 renderer 时，传什么 `options` / `context` 决定显示哪种官方内容：
 
 - **不强制**：官方默认视图（内容预览 / 全文仍由全局 `Ctrl+O` 决定）。当前 edit 用这种（官方 edit 只有一个全文态，传不传无差别）。
 - **强制** `{ ...options, expanded: true }`：跳过官方预览，一键完整展开。bash 和 write 用这种（`registerCollapsibleTool` 的 `forceFullExpansion` 参数），全局 `Ctrl+O` 对三工具彻底失效。
@@ -54,7 +54,17 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 - 跨 `renderCall` / `renderResult` 共享同一个外框（否则会出现两个独立外框、颜色不一致）。
 - 背景色按状态切换：`toolPendingBg`（执行中）/ `toolSuccessBg`（成功）/ `toolErrorBg`（失败）。
 
-### 4. lastComponent 必须清空
+### 4. 点击区域必须包住两种视图
+
+`makeToolClickable()` 用 `MouseRegion` 包住紧凑和完整组件。左键点击后：
+
+1. 翻转当前行的 `override`。
+2. 调用 `context.invalidate()`。
+3. 返回 `{ handled: true }`，阻止 Pi 外层 `MouseRegion` 再翻转一次。
+
+`renderShell: "self"` 的 edit 折叠态要包共享的 `CollapsedToolShell`，这样整个可见外框都能点击。Pi 只在 fullscreen 模式捕获鼠标。
+
+### 5. lastComponent 必须清空
 
 官方 renderer 复用 `context.lastComponent`（edit 的预览 Box、write 的 `WriteCallRenderComponent`、bash 的 `BashResultRenderComponent`）。代理调用时必须传：
 
@@ -64,7 +74,7 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 
 否则官方会把插件返回的组件当成自己的组件复用，导致状态错乱或类型错误。
 
-### 5. 性能原则
+### 6. 性能原则
 
 - `LimitedLinesText`：按宽度缓存 wrap 结果，`invalidate()` 清除缓存。
 - 折叠摘要只处理前几行文本，**绝不**对全量输出做 wrap 或逐行上色。
@@ -79,6 +89,7 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 | 折叠行数 | `MAX_COLLAPSED_COMMAND_LINES`（bash 命令）、`MAX_COLLAPSED_BASH_OUTPUT_LINES`（bash 输出）。`MAX_COLLAPSED_CONTENT_LINES` 同时影响 write 折叠，改它前先确认 |
 | 折叠摘要内容 | `registerCollapsibleTool` 的 `collapsedCall` / `collapsedResult` 回调 |
 | 展开行为 | `registerCollapsibleTool` 的 `forceFullExpansion` 参数（bash/write 为 true，edit 为 false） |
+| 点击行为 | `makeToolClickable`、`RowExpansionState`、`expansionRevisions` |
 | 快捷键 | `pi.registerShortcut("ctrl+alt+x", ...)`，并在 `CTRL_CODE_TO_KEY` / `convertCtrlAltSequence` 中注册新键（Kitty 协议终端需要输入桥） |
 | 新增工具覆盖 | 简单工具直接仿 bash 注册；想复用到官方切换逻辑用 `registerCollapsibleTool` |
 | 折叠外框样式 | `CollapsedToolShell`（self 工具）或依赖默认 shell（default 工具） |
@@ -93,6 +104,8 @@ description: 修改本项目工具渲染插件（tidy-tools.ts）时使用。覆
 
 | 工具 | 默认 | Ctrl+Alt+快捷键 |
 |---|---|---|
-| bash | 折叠（1 行命令 + 1 行输出，计数后缀内联在行尾） | `Ctrl+Alt+B`：一键完整展开 / 收回 |
-| edit | 折叠（`path` + 块数，单行）；markdown 模式下 Markdown 文件默认展开全文 | `Ctrl+Alt+E`：官方全文 ↔ 折叠摘要（带 shared Box 外框） |
-| write | 折叠（`path` + 行数，单行）；markdown 模式下 Markdown 文件默认展开全文 | `Ctrl+Alt+W`：官方全文 ↔ 折叠摘要 |
+| bash | 折叠（1 行命令 + 1 行输出，计数后缀内联在行尾） | `Ctrl+Alt+B`：全部完整展开 / 收回 |
+| edit | 折叠（`path` + 块数，单行）；markdown 模式下 Markdown 文件默认展开全文 | `Ctrl+Alt+E`：全部官方全文 ↔ 折叠摘要（带 shared Box 外框） |
+| write | 折叠（`path` + 行数，单行）；markdown 模式下 Markdown 文件默认展开全文 | `Ctrl+Alt+W`：全部官方全文 ↔ 折叠摘要 |
+
+fullscreen 模式下，三个工具都可点击单个工具块独立展开或收起。

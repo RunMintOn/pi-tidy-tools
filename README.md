@@ -18,6 +18,8 @@ All three tools start **Collapsed**:
 
 Collapsed summaries are single-line per slot: one command line plus one output line (the count suffix is inline at the end of the output line).
 
+In Pi's fullscreen mode, left-click any tool block to toggle that row between its compact summary and full rendering. Click it again to collapse it. Each tool has only these two states; `bash` and `write` skip Pi's intermediate previews.
+
 ## Modes
 
 | Mode | Behavior |
@@ -25,7 +27,7 @@ Collapsed summaries are single-line per slot: one command line plus one output l
 | compact (default) | all three tools collapsed |
 | markdown (`/tidy-markdown` toggles) | `edit`/`write` on Markdown files (`.md`, `.mdx`, `.markdown`) expand to full content; everything else stays collapsed |
 
-Switching modes clears per-tool manual toggles and re-renders existing rows. The mode is not persisted across restarts.
+Switching modes clears shortcut state and row-local click state, then re-renders existing rows. The mode is not persisted across restarts.
 
 ## Shortcuts
 
@@ -37,7 +39,7 @@ On Mac press `Command+Option+letter` (verified; maps to the registered `Ctrl+Alt
 | `Command+Option+E` | `edit` | official rendering ↔ collapsed summary |
 | `Command+Option+W` | `write` | official rendering ↔ collapsed summary |
 
-A notification shows the current state on each toggle; press again to switch back.
+A shortcut toggles all existing rows of that tool type and clears their prior row-local click state. A notification shows the new state; press again to switch back.
 
 `bash` and `write` expand to the **complete output** in one keypress — they skip Pi's built-in previews (bash's 5-line tail preview, write's 10-line preview). `edit` expands to Pi's **official rendering** (it has no preview state). The global `Ctrl+O` tool expansion does not affect these three tools.
 
@@ -88,6 +90,11 @@ If a shortcut still does nothing on your machine, check:
 4. **Inspect the input.** Run `/tidy-key-debug`, then press one target shortcut. Pi shows the received bytes and any rewrite. If no notification appears, the terminal or input method consumed the key before Pi received it.
 
 ## Changelog
+
+### 0.2.1
+
+- Added per-block fullscreen clicking for bash/edit/write, toggling between compact and full rendering
+- Kept tool-wide shortcuts; a shortcut applies one state to all rows of that tool type
 
 ### 0.2.0
 
