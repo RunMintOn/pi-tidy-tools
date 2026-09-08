@@ -133,6 +133,9 @@ class LimitedLinesText implements Component {
 }
 
 class CollapsedBashOutput implements Component {
+    private cachedWidth?: number;
+    private cachedLines?: string[];
+
     // 首行预览 + 计数后缀合并为 1 行，后缀常显。预览放不下时截断并加省略标记。
     constructor(
         private readonly preview: string,
@@ -141,6 +144,16 @@ class CollapsedBashOutput implements Component {
     ) {}
 
     render(width: number): string[] {
+        if (this.cachedLines !== undefined && this.cachedWidth === width) {
+            return this.cachedLines;
+        }
+        const lines = this.renderUncached(width);
+        this.cachedWidth = width;
+        this.cachedLines = lines;
+        return lines;
+    }
+
+    private renderUncached(width: number): string[] {
         if (!this.suffix) {
             return truncateRows(
                 wrapTextWithAnsi(this.preview, Math.max(1, width)),
@@ -169,7 +182,10 @@ class CollapsedBashOutput implements Component {
         return [visibleWidth(row) > width ? sliceByColumn(row, 0, width, true) : row];
     }
 
-    invalidate(): void {}
+    invalidate(): void {
+        this.cachedWidth = undefined;
+        this.cachedLines = undefined;
+    }
 }
 
 class CollapsedToolShell extends Box {
