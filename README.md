@@ -91,6 +91,10 @@ If a shortcut still does nothing on your machine, check:
 
 ## Changelog
 
+### 0.2.2
+
+- Cached collapsed bash output by terminal width to reduce repeated rendering work during TUI redraws with many tool calls
+
 ### 0.2.1
 
 - Added per-block fullscreen clicking for bash/edit/write, toggling between compact and full rendering

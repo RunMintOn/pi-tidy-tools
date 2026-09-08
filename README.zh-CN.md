@@ -91,6 +91,10 @@ Pi 会在终端支持时协商 [Kitty 键盘协议](https://sw.kovidgoyal.net/ki
 
 ## 更新日志
 
+### 0.2.2
+
+- 按终端宽度缓存 bash 折叠输出，降低多轮工具调用场景下 TUI 重绘开销
+
 ### 0.2.1
 
 - 支持在 Pi fullscreen 模式下点击单个 bash/edit/write 工具块，在紧凑摘要和完整渲染之间切换
